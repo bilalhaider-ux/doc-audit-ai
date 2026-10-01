@@ -1,29 +1,31 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 export default function HeroUploadCard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.type === "application/pdf") {
-        // Store file reference for the audit page to pick up
-        if (typeof window !== "undefined") {
-          (window as any).__pendingPdfFile = file;
-        }
-        router.push("/audit");
+      if (file.type !== "application/pdf") {
+        setErrorMessage("Only PDF files are supported.");
+        return;
       }
+      if (file.size > 50 * 1024 * 1024) {
+        setErrorMessage("File is too large. Maximum allowed size is 50MB.");
+        return;
+      }
+      setErrorMessage("");
+      // Store file reference for the audit page to pick up
+      if (typeof window !== "undefined") {
+        (window as Window & { __pendingPdfFile?: File }).__pendingPdfFile = file;
+      }
+      router.push("/audit");
     }
-  };
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    fileInputRef.current?.click();
   };
 
   return (
@@ -62,12 +64,16 @@ export default function HeroUploadCard() {
           Files auto-deleted after 2 hours
         </div>
         <input
+          ref={fileInputRef}
           type="file"
           accept="application/pdf"
           onChange={handleFileChange}
           className="hidden"
         />
       </label>
+      {errorMessage && (
+        <p className="mt-3 text-center text-[12px] font-medium text-error">{errorMessage}</p>
+      )}
     </div>
   );
 }
