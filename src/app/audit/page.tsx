@@ -7,6 +7,7 @@ import ThemeToggle from "../components/ThemeToggle";
 
 export default function AuditPage() {
   const [status, setStatus] = useState<"upload" | "loading" | "ready" | "history">("upload");
+  const [uploadError, setUploadError] = useState("");
   const [fileName, setFileName] = useState("");
   const [fileSize, setFileSize] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -17,58 +18,67 @@ export default function AuditPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
-    if (file && file.type === "application/pdf") {
-      setFileName(file.name);
-      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
-      setFileSize(`${sizeMB} MB`);
-      setPdfFile(file);
-      setStatus("loading");
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      setUploadError("Please upload a PDF file.");
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError("File is too large. Maximum allowed size is 50MB.");
+      return;
+    }
 
-      const formData = new FormData();
-      formData.append("file", file);
+    setUploadError("");
+    setFileName(file.name);
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    setFileSize(`${sizeMB} MB`);
+    setPdfFile(file);
+    setStatus("loading");
 
-      try {
-        const res = await fetch("/api/analyze", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-        if (data.error) {
-          alert(data.error);
-          setStatus("upload");
-          return;
-        }
-        const newSummary = data.summary || [];
-        const newRisks = data.risks || [];
-        const newExtractedText = data.extractedText || "";
+    const formData = new FormData();
+    formData.append("file", file);
 
-        setSummary(newSummary);
-        setRisks(newRisks);
-        setExtractedText(newExtractedText);
-        
-        // Save to LocalStorage History
-        try {
-          const newHistoryItem = {
-            id: Date.now(),
-            fileName: file.name,
-            fileSize: `${sizeMB} MB`,
-            summary: newSummary,
-            risks: newRisks,
-            extractedText: newExtractedText.substring(0, 10000), // Limit size
-            date: new Date().toLocaleDateString()
-          };
-          const existingHistory = JSON.parse(localStorage.getItem('docAuditHistory') || '[]');
-          localStorage.setItem('docAuditHistory', JSON.stringify([newHistoryItem, ...existingHistory].slice(0, 10)));
-        } catch (e) {
-          console.error("Failed to save history", e);
-        }
-
-        setStatus("ready");
-      } catch (err) {
-        console.error(err);
-        alert("Failed to analyze document.");
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.error) {
+        setUploadError(data.error);
         setStatus("upload");
+        return;
       }
+      const newSummary = data.summary || [];
+      const newRisks = data.risks || [];
+      const newExtractedText = data.extractedText || "";
+
+      setSummary(newSummary);
+      setRisks(newRisks);
+      setExtractedText(newExtractedText);
+      
+      // Save to LocalStorage History
+      try {
+        const newHistoryItem = {
+          id: Date.now(),
+          fileName: file.name,
+          fileSize: `${sizeMB} MB`,
+          summary: newSummary,
+          risks: newRisks,
+          extractedText: newExtractedText.substring(0, 10000), // Limit size
+          date: new Date().toLocaleDateString()
+        };
+        const existingHistory = JSON.parse(localStorage.getItem('docAuditHistory') || '[]');
+        localStorage.setItem('docAuditHistory', JSON.stringify([newHistoryItem, ...existingHistory].slice(0, 10)));
+      } catch (e) {
+        console.error("Failed to save history", e);
+      }
+
+      setStatus("ready");
+    } catch (err) {
+      console.error(err);
+      setUploadError("Failed to analyze document. Please try again.");
+      setStatus("upload");
     }
   }, []);
 
@@ -114,6 +124,7 @@ export default function AuditPage() {
     return (
       <UploadScreen
         dragActive={dragActive}
+        uploadError={uploadError}
         fileInputRef={fileInputRef}
         onFileChange={onFileChange}
         onDragOver={onDragOver}
@@ -130,7 +141,7 @@ export default function AuditPage() {
   if (status === "history") {
     return (
       <HistoryScreen 
-        onBack={() => setStatus("ready")} 
+        onBack={() => setStatus("upload")} 
         onSelect={(item) => {
           setFileName(item.fileName);
           setFileSize(item.fileSize);
@@ -190,10 +201,11 @@ function HistoryScreen({ onBack, onSelect }: { onBack: () => void, onSelect: (it
         ) : (
           <div className="flex flex-col gap-4">
             {history.map((item) => (
-              <div 
+              <button
+                type="button"
                 key={item.id} 
                 onClick={() => onSelect(item)}
-                className="bg-surface-container-low border border-outline-variant rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:border-primary hover:shadow-md transition-all group"
+                className="w-full text-left bg-surface-container-low border border-outline-variant rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:border-primary hover:shadow-md transition-all group"
               >
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-xl bg-primary-container text-primary flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -222,7 +234,7 @@ function HistoryScreen({ onBack, onSelect }: { onBack: () => void, onSelect: (it
                     </div>
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -234,6 +246,7 @@ function HistoryScreen({ onBack, onSelect }: { onBack: () => void, onSelect: (it
 /* ========== UPLOAD SCREEN ========== */
 function UploadScreen({
   dragActive,
+  uploadError,
   fileInputRef,
   onFileChange,
   onDragOver,
@@ -241,6 +254,7 @@ function UploadScreen({
   onDrop,
 }: {
   dragActive: boolean;
+  uploadError: string;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -332,6 +346,11 @@ function UploadScreen({
             <span className="material-symbols-outlined text-[16px] text-secondary">verified_user</span>
             <span className="text-[11px] font-medium">Encrypted & auto-deleted after 2 hours</span>
           </div>
+          {uploadError && (
+            <div className="w-full rounded-xl border border-error/25 bg-error-container/30 px-4 py-3 text-[13px] text-on-surface">
+              {uploadError}
+            </div>
+          )}
         </div>
       </div>
     </main>
@@ -432,6 +451,12 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
   const [chatHistory, setChatHistory] = useState<{role: string, content: string}[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(""), 2500);
+  }, []);
 
   const handleChatSubmit = async () => {
     if (!chatInput.trim() || chatLoading) return;
@@ -465,7 +490,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = useCallback(async () => {
     try {
       const { jsPDF } = await import("jspdf");
       const autoTable = (await import("jspdf-autotable")).default;
@@ -535,9 +560,9 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
       doc.save(`${fileName.replace('.pdf', '')}_Audit_Report.pdf`);
     } catch (e) {
       console.error("Export failed", e);
-      alert("Failed to export PDF.");
+      showToast("Failed to export PDF.");
     }
-  };
+  }, [fileName, risks, showToast, summary]);
 
   return (
     <div className="h-screen bg-surface-container-low flex flex-col md:flex-row overflow-hidden animate-[fade-in_0.5s_ease-out] pb-16 md:pb-0">
@@ -553,7 +578,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
         <nav className="flex flex-col gap-4 w-full px-2">
           <NavItem icon="dashboard" label="Dashboard" active onClick={() => window.location.reload()} />
           <NavItem icon="folder_open" label="Files" onClick={onOpenHistory} />
-          <NavItem icon="settings" label="Settings" onClick={() => alert("Settings panel will be available in the next update!")} />
+          <NavItem icon="settings" label="Settings" onClick={() => showToast("Settings panel will be available in the next update.")} />
         </nav>
         <div className="mt-auto">
           <div className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center border border-outline-variant cursor-pointer hover:border-primary transition-colors">
@@ -639,7 +664,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
                     <div className="text-center p-6 text-on-surface-variant text-[13px]">No major risks identified in this document.</div>
                   ) : (
                     risks.map((risk, idx) => {
-                      const isHigh = risk.level === "High" || risk.level === "High";
+                      const isHigh = risk.level === "High";
                       const isMed = risk.level === "Medium" || risk.level === "Med";
                       
                       let containerClass = "bg-primary/5 border-primary/10";
@@ -697,7 +722,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
                   <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-4">
                     <ul className="space-y-3 text-[13px] text-on-surface-variant leading-relaxed">
                       {summary.length === 0 ? (
-                        <p>No summary generated.</p>
+                        <li>No summary generated.</li>
                       ) : (
                         summary.map((point, idx) => (
                           <li key={idx} className="flex items-start gap-2">
@@ -780,7 +805,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
           <span className="material-symbols-outlined text-[24px]">folder_open</span>
           <span className="text-[10px] font-medium">Files</span>
         </button>
-        <button onClick={() => alert("Settings panel will be available in the next update!")} className="flex flex-col items-center gap-1 p-2 text-on-surface-variant hover:text-on-surface">
+        <button onClick={() => showToast("Settings panel will be available in the next update.")} className="flex flex-col items-center gap-1 p-2 text-on-surface-variant hover:text-on-surface">
           <span className="material-symbols-outlined text-[24px]">settings</span>
           <span className="text-[10px] font-medium">Settings</span>
         </button>
@@ -800,9 +825,10 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
             <div className="p-2 pb-6 md:pb-2">
               <button 
                 onClick={() => {
-                  navigator.clipboard.writeText(`Check out my DocAudit AI Report for ${fileName}! Found ${risks.length} risks.`);
+                  navigator.clipboard.writeText(window.location.href)
+                    .then(() => showToast("Link copied to clipboard."))
+                    .catch(() => showToast("Failed to copy link."));
                   setShowShareMenu(false);
-                  alert("Copied to clipboard!");
                 }}
                 className="w-full flex items-center gap-4 px-4 py-3.5 text-on-surface hover:bg-surface-container-low transition-colors rounded-xl text-left"
               >
@@ -811,7 +837,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
                 </div>
                 <div>
                   <p className="font-semibold text-[15px]">Copy Link</p>
-                  <p className="text-[12px] text-on-surface-variant">Copy text to your clipboard</p>
+                  <p className="text-[12px] text-on-surface-variant">Copy page link to your clipboard</p>
                 </div>
               </button>
               <button 
@@ -866,6 +892,11 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
           </div>
         </div>
       )}
+      {toastMessage && (
+        <div className="fixed top-4 right-4 z-[120] max-w-xs rounded-xl bg-inverse-surface text-inverse-on-surface px-4 py-2 text-[13px] shadow-xl">
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 }
@@ -884,7 +915,8 @@ function NavItem({
   onClick?: () => void;
 }) {
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
       className={`w-12 h-12 mx-auto rounded-xl flex items-center justify-center cursor-pointer transition-all duration-200 group relative ${
         active
@@ -904,7 +936,7 @@ function NavItem({
       <div className="absolute left-16 bg-inverse-surface text-inverse-on-surface px-2 py-1 rounded text-xs font-label-md opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
         {label}
       </div>
-    </div>
+    </button>
   );
 }
 
