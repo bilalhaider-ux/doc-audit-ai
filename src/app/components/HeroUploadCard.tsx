@@ -22,7 +22,7 @@ export default function HeroUploadCard() {
       setErrorMessage("");
       // Store file reference for the audit page to pick up
       if (typeof window !== "undefined") {
-        (window as any).__pendingPdfFile = file;
+        (window as Window & { __pendingPdfFile?: File }).__pendingPdfFile = file;
       }
       router.push("/audit");
     }

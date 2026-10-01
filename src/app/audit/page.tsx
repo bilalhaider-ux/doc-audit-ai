@@ -5,6 +5,22 @@ import Link from "next/link";
 import PdfViewer from "./PdfViewer";
 import ThemeToggle from "../components/ThemeToggle";
 
+interface RiskItem {
+  title: string;
+  description: string;
+  level: string;
+}
+
+interface HistoryItem {
+  id: number;
+  fileName: string;
+  fileSize: string;
+  summary: string[];
+  risks: RiskItem[];
+  extractedText: string;
+  date: string;
+}
+
 export default function AuditPage() {
   const [status, setStatus] = useState<"upload" | "loading" | "ready" | "history">("upload");
   const [uploadError, setUploadError] = useState("");
@@ -13,7 +29,7 @@ export default function AuditPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [summary, setSummary] = useState<string[]>([]);
-  const [risks, setRisks] = useState<{title: string, description: string, level: string}[]>([]);
+  const [risks, setRisks] = useState<RiskItem[]>([]);
   const [extractedText, setExtractedText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -85,10 +101,13 @@ export default function AuditPage() {
   // Check for pending file from landing page on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const pendingFile = (window as any).__pendingPdfFile;
+      const pendingFile = (window as Window & { __pendingPdfFile?: File }).__pendingPdfFile;
       if (pendingFile) {
-        handleFile(pendingFile);
-        delete (window as any).__pendingPdfFile;
+        const timer = window.setTimeout(() => {
+          handleFile(pendingFile);
+          delete (window as Window & { __pendingPdfFile?: File }).__pendingPdfFile;
+        }, 0);
+        return () => window.clearTimeout(timer);
       }
     }
   }, [handleFile]);
@@ -159,15 +178,15 @@ export default function AuditPage() {
 }
 
 /* ========== HISTORY SCREEN ========== */
-function HistoryScreen({ onBack, onSelect }: { onBack: () => void, onSelect: (item: any) => void }) {
-  const [history, setHistory] = useState<any[]>([]);
-
-  useEffect(() => {
+function HistoryScreen({ onBack, onSelect }: { onBack: () => void, onSelect: (item: HistoryItem) => void }) {
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    if (typeof window === "undefined") return [];
     try {
-      const existing = JSON.parse(localStorage.getItem('docAuditHistory') || '[]');
-      setHistory(existing);
-    } catch (e) { }
-  }, []);
+      return JSON.parse(localStorage.getItem("docAuditHistory") || "[]") as HistoryItem[];
+    } catch {
+      return [];
+    }
+  });
 
   const clearHistory = () => {
     localStorage.removeItem('docAuditHistory');
@@ -445,7 +464,7 @@ function LoadingScreen({ fileName, fileSize }: { fileName: string; fileSize: str
 }
 
 /* ========== DASHBOARD SCREEN ========== */
-function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extractedText, onOpenHistory }: { fileName: string; fileSize: string; pdfFile: File | null, summary: string[], risks: any[], extractedText: string, onOpenHistory: () => void }) {
+function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extractedText, onOpenHistory }: { fileName: string; fileSize: string; pdfFile: File | null, summary: string[], risks: RiskItem[], extractedText: string, onOpenHistory: () => void }) {
   const [activeTab, setActiveTab] = useState<"summary" | "risks" | "chat">("summary");
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<{role: string, content: string}[]>([]);
@@ -483,7 +502,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
       } else {
         setChatHistory([...newHistory, { role: "model", content: "Sorry, I encountered an error." }]);
       }
-    } catch (error) {
+    } catch {
       setChatHistory([...newHistory, { role: "model", content: "Failed to connect to AI." }]);
     } finally {
       setChatLoading(false);
@@ -513,7 +532,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
       doc.text(summaryFormatted, 14, 55, { maxWidth: 180 });
       
       // Calculate Y position for Risks
-      let nextY = 55 + (summary.length * 10) + 10;
+      const nextY = 55 + (summary.length * 10) + 10;
       
       // Add Risks Section
       doc.setFontSize(16);
@@ -549,7 +568,7 @@ function DashboardScreen({ fileName, fileSize, pdfFile, summary, risks, extracte
       });
       
       // Add Watermark to Footer on all pages
-      const pageCount = (doc as any).internal.getNumberOfPages();
+      const pageCount = doc.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(10);
